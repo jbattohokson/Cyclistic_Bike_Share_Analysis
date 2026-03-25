@@ -8,7 +8,7 @@
 
 ## Overview
 
-Cyclistic is a fictional Chicago-based bike-share company with 5,800+ bikes and 600+ docking stations. This analysis examines Q1 2019 and Q1 2020 ride data (791,000+ trips) to identify behavioral differences between annual members and casual riders.
+Cyclistic is a fictional Chicago-based bike-share company with 5,800+ bikes and 600+ docking stations. This analysis examines Q1 2019 and Q1 2020 ride data (791,000+ trips) to identify behavioral differences between annual members and casual riders, then provides data-driven marketing recommendations to convert casual riders into paying members.
 
 ---
 
@@ -33,7 +33,7 @@ Cyclistic is a fictional Chicago-based bike-share company with 5,800+ bikes and 
 ## Methodology
 
 1. **Prepare** — Loaded and inspected both quarterly CSVs; identified schema mismatches between 2019 and 2020 column naming conventions
-2. **Process** — Renamed 2019 columns to match 2020; standardized member type labels (`Subscriber` → `member`, `Customer` → `casual`); computed `ride_length` and extracted date parts; removed quality issues
+2. **Process** — Renamed 2019 columns to match 2020; standardized member type labels (`Subscriber` → `member`, `Customer` → `casual`); computed `ride_length` and extracted date parts; removed quality-check station rides and zero/negative durations
 3. **Analyze** — Grouped by rider type and day of week, hour of day, and month; computed average ride duration and ride counts
 4. **Share** — Built 5 Python charts and an interactive Tableau dashboard; exported clean CSVs for Tableau
 
