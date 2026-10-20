@@ -1,85 +1,38 @@
-# 91% of rides come from members.
-### So why are casual riders the conversion opportunity?
+# Cyclistic Bike-Share: Member vs. Casual Rider Behavior
 
-> **[Live Report](https://jbattohokson.github.io/Cyclistic_Bike_Share_Analysis/Bike-Share_Analysis.html)** | **[Tableau Dashboard](https://public.tableau.com/app/profile/julian.batto.hokson/viz/Cyclist_Bike_Share_Viz_V1/Dashboard2)** | [GitHub Repo](https://github.com/jbattohokson/Cyclistic_Bike_Share_Analysis)
+This is the Google Data Analytics Professional Certificate capstone case study (Divvy/Cyclistic public trip data), extended beyond the standard capstone with a BigQuery layer and a full Python analysis. Worth stating that plainly: the case study itself is well known, and the differentiator here is the reconciliation and warehouse work built on top of it, not the prompt.
 
----
+**Business question:** how do annual members and casual riders use the bike-share service differently, and what does that suggest for converting casual riders into members?
 
-## Executive Summary
+## Key finding (corrected 2026-09-16 — see below)
 
-Google Data Analytics Capstone project. Cyclistic is a fictional Chicago-based bike-share with 5,800+ bikes and 600+ docking stations. Annual members already generate more profit per rider than casual users — the strategic question is not whether to convert casual riders, but which ones to target, when, and with what message.
+Members account for 91% of total rides. Casual riders take meaningfully longer trips on average — 38 minutes vs. 11 minutes for members (about 3.4x longer) — and ride more on weekends, consistent with leisure use, while members show clear commuting peaks around 8am and 5pm on weekdays.
 
-This analysis of 791,264 Q1 trips (Q1 2019 and Q1 2020) shows that casual riders and annual members use the system in fundamentally different ways. Members are commuters. Casual riders are weekend leisure cyclists. Those two groups need different conversion arguments, different timing, and different product structures. The highest-value conversion opportunity is not a discount — it is a product that matches how casual riders actually use the system.
+## Pipeline
 
-| Metric | Value |
-|--------|-------|
-| Total rides analyzed | 791,264 |
-| Annual member share | 91% (720,126 rides) |
-| Casual rider share | 9% (71,138 rides) |
-| Avg casual ride duration | 36.5 min |
-| Avg member ride duration | 11.4 min |
-| Duration gap | 3.2x longer for casual riders |
-| Casual peak days | Saturday and Sunday |
-| Casual peak hours | 10 AM – 4 PM |
+1. **`python/Cyclist_Analysis_Python.py`** — reconciles two quarterly Divvy exports with different schemas (2019: `trip_id`/`usertype`/`Subscriber`/`Customer`; 2020: `ride_id`/`member_casual`/`member`/`casual`), cleans and combines them, and produces the day-of-week, hour-of-day, and monthly comparison charts.
+2. **`sql/cyclistic_bigquery.sql`** — the same cleaning and combination logic in BigQuery SQL, for reproducing the analysis at full-year scale in a cloud warehouse instead of local CSVs. (Not re-tested in this pass — no live BigQuery credentials in this environment. The SQL was reviewed for logic, not executed; it already applies the same 24-hour outlier cutoff described below, so it's a good reference for how the Python fix should behave.)
 
----
+```bash
+pip install -r requirements.txt
+python "python/Cyclist_Analysis_Python.py"
+```
 
-## Tools & Technologies
+`cyclistic_bigquery.sql` is written for Google BigQuery (free tier) — run it there directly against your own project.
 
-| Tool | Purpose |
-|------|---------|
-| Python (pandas, Matplotlib) | Data cleaning, feature engineering, behavioral analysis, visualization |
-| SQL (BigQuery) | Large-scale aggregation, view creation, segment queries |
-| Tableau | Member vs. casual ridership dashboards, temporal and geographic breakdowns |
+## Tools
 
----
+Python (pandas, matplotlib), Google BigQuery (SQL), Tableau Public.
 
-## Findings: Four behavioral differences worth examining for conversion strategy
+## Dashboard
 
-### Members commute. Casual riders explore. These require different conversion arguments.
-Members account for 91% of Q1 rides (720,126) while casual riders represent 9% (71,138). But casual riders take rides that average 36.5 minutes versus 11.4 minutes for members — a 3.2x gap. Members show the classic dual-peak commute pattern: 7–9 AM and 5–6 PM on weekdays. Casual riders show a single broad midday peak on weekends. A casual rider taking a 36-minute Saturday ride does not need a commuter pitch — messaging focused on city exploration and longer-ride value is more relevant than cost-per-commute savings.
+*(Add the public.tableau.com link for `Cyclist_Bike_Share_Viz`.)*
 
-| Metric | Member | Casual |
-|--------|--------|--------|
-| Total rides (Q1) | 720,126 (91%) | 71,138 (9%) |
-| Avg ride duration | 11.4 min | 36.5 min |
-| Median ride duration | 8.5 min | 22.0 min |
-| Peak days | Tue–Thu | Sat–Sun |
-| Peak hours | 7–9 AM, 5–6 PM | 10 AM – 4 PM |
+## Bugs found and fixed while testing this pipeline (2026-09-16)
 
-### The conversion window is Saturday and Sunday, 10 AM to 4 PM
-Casual ridership peaks Saturday and Sunday while member ridership drops sharply on those same days. The overlap is minimal — these are two distinct populations using the same infrastructure at different times. The optimal conversion moment is mid-ride on a Saturday or Sunday, when a casual rider is actively engaged with the product and physically present at a docking station. In-app prompts and docking station signage triggered at ride completion have higher conversion probability than weekday email campaigns.
+1. **The reported "90 min vs 13 min" ride-length finding was outlier-contaminated.** The only filter on ride length was `> 0` — no upper bound. The dataset's max ride length is 10,632,022 seconds (~123 days), almost certainly a bike that was never docked rather than a real ride, and it was pulling casual riders' mean ride length up to ~90 minutes even though the median was ~23 minutes — a large mean/median gap that's a textbook outlier signal, not a real behavioral difference. The script's own "KEY FINDINGS" text was printing that inflated mean as if it were a clean insight. Added a 24-hour upper-bound filter (the same cutoff the BigQuery SQL in this project already used — the two layers had drifted apart) and reran 3 times: the corrected, honest finding is 38 min vs. 11 min (3.4x), not 90 vs. 13 (6.8x). Only 4,249 of ~792,000 rows (0.5%) were affected.
+2. **A 2019 column was mislabeled.** `bikeid` (a numeric bike ID) was renamed directly to `rideable_type` (a 2020+ category like "docked_bike"), which conflates two different kinds of fields. It happened to be unused downstream so this was silent, but would have broken the moment anyone added a "rides by bike type" chart. Renamed to the accurate `bike_id`.
 
-### Casual riders who use the system frequently likely pay more annually than members do
-At casual single-ride rates of approximately $3.30 per trip (Divvy 2019–2020 pricing), a rider taking two rides per weekend across 12 months spends roughly $343 annually. Annual membership at $108/year saves that rider approximately $235. The math favors membership for any casual rider using the system more than 33 times per year — less than once per week. A cost comparison calculator showing what a casual rider's Q1 ride pattern would have cost at casual rates versus annual membership is the most direct conversion argument available. *Note: these are approximate 2019 Divvy pricing figures; current rates should be substituted before use in any live campaign.*
+## Repo hygiene note
 
-### Casual ridership is more seasonal — which means conversion timing matters by month
-Casual ridership grows more steeply as Q1 progresses into warmer months, while members maintain more consistent ridership through the same period. Casual riders are weather-sensitive in a way members are not — consistent with leisure use patterns and a likely tourist component. Conversion campaigns launched in late Q1 (March) reach casual riders at the moment their ridership is increasing, before they settle into a summer pattern without membership.
-
----
-
-## Recommendations: Three conversion levers ranked by expected reach
-
-### Weekend conversion campaigns at peak usage moments
-Target casual riders at docking stations and via in-app prompt on Saturday and Sunday, triggered immediately after ride completion — the highest-engagement moment. A time-limited discount for converting during or after a weekend ride reduces friction at the point of maximum product satisfaction.
-
-### Create a leisure or weekend membership tier
-Annual membership is priced and positioned for commuters. A "Weekend Pass" or "Leisure Membership" priced between casual per-trip rates and annual membership reduces the commitment barrier, creates an upsell path to annual membership, and generates revenue from a segment that currently pays per-trip. Pricing target: between casual rates and annual membership cost.
-
-### Run leisure-focused ads between 10 AM and 4 PM on weekends
-Messaging should focus on exploration and longer-ride value, not commuting efficiency. Partner with local tourism and event platforms to reach casual riders planning weekend activities. Match channel timing to when casual riders are active — not when members are.
-
----
-
-## Data Scope and Cleaning
-
-| Dimension | Value |
-|-----------|-------|
-| Dataset | Divvy / Motivate International Inc. — public license |
-| Period | Q1 2019 (365,069 rows) and Q1 2020 (426,886 rows) |
-| Final clean dataset | 791,264 rides (692 rows removed, under 0.1%) |
-| Exclusions | Ride lengths ≤0 min (negative/zero durations); ride lengths ≥1,440 min (likely maintenance trips) |
-| Schema standardization | 2019 column names unified with 2020 schema (trip_id → ride_id, usertype → member_casual) |
-| Engineered features | ride_length_min, day_of_week, hour, month |
-
-**Scope limitations:** This analysis covers Q1 only (January–March). Full-year data would strengthen seasonal findings, particularly summer leisure riding peaks. Data privacy prevents linking rides to individual users — lifetime value comparisons and funnel tracking are not possible with this dataset. A/B testing the weekend conversion campaign against a control group is recommended before full rollout.
+Three SQL file versions and two duplicate `outputs/` folders (one under `python/`, stale and superseded, now removed) were consolidated. The combined trip CSVs are 100MB+ and are excluded from git via `.gitignore` — they're fully regenerable by re-running the pipeline against the public Divvy data.

@@ -1,0 +1,11 @@
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+
+# Regenerable, multi-hundred-MB raw/combined trip data — do not commit.
+# Re-download source CSVs from the Divvy/Cyclistic public data page, or
+# re-run Cyclist_Analysis_Python.py to regenerate all_trips_clean.csv.
+data/*.csv
+outputs/all_trips_clean.csv
+*.csv.zip

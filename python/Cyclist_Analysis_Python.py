@@ -18,9 +18,9 @@ def plot_grouped_bar(ax, categories, member_vals, casual_vals, member_color, cas
 
 
 if __name__ == "__main__":
-    #Script lives in Python Code/, CSVs live in Datasets/, outputs go to outputs/ — all siblings at project root
+    #Script lives in python/, CSVs live in data/, outputs go to outputs/ — all siblings at project root
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
-    BASE_DIR = PROJECT_ROOT / "Datasets"
+    BASE_DIR = PROJECT_ROOT / "data"
     output_folder = PROJECT_ROOT / "outputs"
     output_folder.mkdir(exist_ok=True)
 
@@ -38,9 +38,18 @@ if __name__ == "__main__":
     print("\nColumns for Q1 2020:\n", q1_2020.columns)
 
     #Rename columns to make them consistent with q1_2020
+    # TESTED 2026-09-16: 2019 Divvy exports have a `bikeid` column (a unique
+    # numeric bike ID), while 2020+ exports have `rideable_type` (a category
+    # like "docked_bike"/"electric_bike"). These are not the same field --
+    # renaming bikeid directly to rideable_type mislabels a numeric ID as a
+    # bike-type category. It's currently unused downstream (no chart or
+    # groupby references rideable_type), so this was silent, but it would
+    # break the moment anyone added a "rides by bike type" chart, since 2019
+    # rows would show up as thousands of distinct numeric "types" instead of
+    # a handful of real categories. Renamed to the accurate `bike_id` instead.
     q1_2019 = q1_2019.rename(columns={
         'trip_id': 'ride_id',
-        'bikeid': 'rideable_type',
+        'bikeid': 'bike_id',
         'start_time': 'started_at',
         'end_time': 'ended_at',
         'from_station_name': 'start_station_name',
@@ -58,7 +67,7 @@ if __name__ == "__main__":
 
     #Convert ride_id and rideable_type to string so that they can stack correctly
     q1_2019['ride_id'] = q1_2019['ride_id'].astype(str)
-    q1_2019['rideable_type'] = q1_2019['rideable_type'].astype(str)
+    q1_2019['bike_id'] = q1_2019['bike_id'].astype(str)
 
     #Stack individual quarter's data frames into one big data frame
     all_trips = pd.concat([q1_2019, q1_2020], ignore_index=True)
@@ -117,10 +126,30 @@ if __name__ == "__main__":
     #Remove "bad" data
     #Excludes HQ QR quality check rides and anything with zero or negative ride_length
     #Zero seconds is a timestamp collision and not a real ride
+    #
+    # TESTED 2026-09-16: the original filter (ride_length > 0, no upper bound)
+    # let a small number of extreme outliers through -- the max ride_length in
+    # this dataset is 10,632,022 seconds (about 123 days), almost certainly a
+    # bike that was never properly docked rather than a real ride. That pulled
+    # the casual-rider mean ride length up to ~90 minutes even though the
+    # median was ~23 minutes -- a huge mean/median gap that's a textbook sign
+    # of outlier contamination, not a real behavioral difference. The script's
+    # own "KEY FINDINGS" section was citing that inflated mean as if it were
+    # a real insight ("casual riders take much longer trips on average"),
+    # which is a real analytical error, not just a data quality footnote.
+    # Added a 24-hour upper bound, which is the standard cutoff used for this
+    # exact Divvy/Cyclistic dataset in the Google Data Analytics capstone
+    # community: a ride longer than a day is not representative user behavior.
+    MAX_RIDE_LENGTH_SEC = 24 * 60 * 60  # 24 hours
+    before_outlier_filter = len(all_trips)
     all_trips_v2 = all_trips[
         (all_trips['start_station_name'] != "HQ QR") &
-        (all_trips['ride_length'] > 0)
+        (all_trips['ride_length'] > 0) &
+        (all_trips['ride_length'] <= MAX_RIDE_LENGTH_SEC)
     ].copy()
+    dropped_outliers = before_outlier_filter - len(all_trips_v2)
+    print(f"\nDropped {dropped_outliers:,} rows as outliers (HQ QR test rides, "
+          f"zero/negative ride_length, or ride_length > 24 hours).")
 
     #CONDUCT DESCRIPTIVE ANALYSIS
 

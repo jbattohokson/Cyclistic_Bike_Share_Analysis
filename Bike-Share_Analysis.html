@@ -17,7 +17,7 @@
   h1{font-size:clamp(24px,4vw,38px);font-weight:normal;line-height:1.2;letter-spacing:-.02em;margin-bottom:18px}
   h1 em{font-style:italic;color:#7eb8d4}
   .meta{font-family:'Arial',sans-serif;font-size:13px;color:#7eb8d4;display:flex;flex-wrap:wrap;gap:20px}
-  .meta span::before{content:'-- '}
+  .meta span::before{content:'· '}
   .sticky-nav{position:sticky;top:0;background:var(--white);border-bottom:1px solid var(--border);z-index:100;padding:10px 0}
   .sticky-nav .page-wrap{display:flex;gap:24px;flex-wrap:wrap;padding-top:0;padding-bottom:0}
   .sticky-nav a{font-family:'Arial',sans-serif;font-size:12.5px;color:var(--ink-light);font-weight:500}
@@ -72,11 +72,11 @@
 <body>
 <header>
   <div class="page-wrap">
-    <p class="eyebrow">Ride-Share Analytics -- Member Conversion</p>
+    <p class="eyebrow">Ride-Share Analytics · Member Conversion</p>
     <h1>91% of rides come from members.<br><em>So why are casual riders the conversion opportunity?</em></h1>
     <div class="meta">
       <span>Julian Batto-Hokson</span>
-      <span>791,264 rides, Q1 2019 and Q1 2020</span>
+      <span>787,707 rides, Q1 2019 and Q1 2020</span>
       <span>Python, SQL, BigQuery</span>
       <span>2025</span>
     </div>
@@ -86,17 +86,17 @@
 <div class="page-wrap">
 <section id="summary" class="exec-summary">
   <h2>Executive Summary</h2>
-  <p>This analysis was prepared for Lily Moreno, Director of Marketing at Cyclistic. Cyclistic's finance team already confirmed it: annual members generate more profit per rider than casual users. The strategic question is not whether to convert casual riders -- it is which casual riders to target, when, and with what message.</p>
-  <p>This analysis of 791,264 Q1 rides across 2019 and 2020 shows that casual riders and annual members use the system in fundamentally different ways. Members are commuters. Casual riders are weekend leisure cyclists. Those two groups need different conversion arguments, different timing, and different product structures to move them toward membership.</p>
-  <p>The highest-value conversion opportunity is not a discount. It is a product that matches how casual riders actually use the system -- a leisure or weekend membership tier that reduces the commitment barrier and creates a natural upsell path to annual membership.</p>
+  <p>This analysis was prepared for Lily Moreno, Director of Marketing at Cyclistic. Cyclistic's finance team already confirmed it: annual members generate more profit per rider than casual users. The strategic question is not whether to convert casual riders, it is which casual riders to target, when, and with what message.</p>
+  <p>This analysis of 787,707 Q1 rides across 2019 and 2020 shows that casual riders and annual members use the system in fundamentally different ways. Members are commuters. Casual riders are weekend leisure cyclists. Those two groups need different conversion arguments, different timing, and different product structures to move them toward membership.</p>
+  <p>The highest-value conversion opportunity is not a discount. It is a product that matches how casual riders actually use the system: a leisure or weekend membership tier that reduces the commitment barrier and creates a natural upsell path to annual membership.</p>
 </section>
 <div class="kpi-strip">
-  <div class="kpi"><div class="num blue">91%</div><div class="label">Share of Q1 rides from annual members (720,126 rides)</div></div>
-  <div class="kpi"><div class="num amber">3.2x</div><div class="label">Longer average ride duration for casual riders vs. members</div></div>
-  <div class="kpi"><div class="num good">36.5 min</div><div class="label">Avg casual ride length vs. 11.4 min for members</div></div>
-  <div class="kpi"><div class="num warn">9%</div><div class="label">Casual rider share of rides -- the conversion pool</div></div>
+  <div class="kpi"><div class="num blue">91%</div><div class="label">Share of Q1 rides from annual members (720,125 rides)</div></div>
+  <div class="kpi"><div class="num amber">3.4x</div><div class="label">Longer average ride duration for casual riders vs. members</div></div>
+  <div class="kpi"><div class="num good">38.4 min</div><div class="label">Avg casual ride length vs. 11.4 min for members</div></div>
+  <div class="kpi"><div class="num warn">9%</div><div class="label">Casual rider share of rides, the conversion pool</div></div>
   <div class="kpi"><div class="num blue">Sat-Sun</div><div class="label">Casual rider peak days vs. Tue-Thu for members</div></div>
-  <div class="kpi"><div class="num amber">10am-4pm</div><div class="label">Casual rider peak hours -- no morning rush signature</div></div>
+  <div class="kpi"><div class="num amber">12-5 PM</div><div class="label">Casual rider peak hours, with no morning rush signature</div></div>
 </div>
 <section id="findings" class="section">
   <p class="section-label">Analysis</p>
@@ -104,40 +104,40 @@
   <div class="finding">
     <div class="finding-header"><span class="finding-number">01</span><span class="finding-title">Members commute. Casual riders explore. These require different conversion arguments.</span></div>
     <div class="finding-body">
-      <p>Members account for 91% of Q1 rides (720,126) while casual riders represent 9% (71,138). But casual riders take rides that average 36.5 minutes versus 11.4 minutes for members -- a 3.2x gap. Members show the classic dual-peak commute pattern: 7-9 AM and 5-6 PM on weekdays. Casual riders show a single broad midday peak on weekends.</p>
+      <p>Members account for 91% of Q1 rides (720,126) while casual riders represent 9% (67,582). But casual riders take rides that average 38.4 minutes versus 11.4 minutes for members, a 3.4x gap. Members show the classic dual-peak commute pattern: 7-9 AM and 4-6 PM on weekdays. Casual riders show a single broad midday peak on weekends.</p>
       <div class="data-table-wrap"><table>
         <thead><tr><th>Metric</th><th>Member</th><th>Casual</th></tr></thead>
         <tbody>
-          <tr><td>Total rides (Q1)</td><td class="pos">720,126 (91%)</td><td>71,138 (9%)</td></tr>
-          <tr><td>Avg ride duration</td><td>11.4 min</td><td class="amber">36.5 min</td></tr>
-          <tr><td>Median ride duration</td><td>8.5 min</td><td>22.0 min</td></tr>
+          <tr><td>Total rides (Q1)</td><td class="pos">720,125 (91%)</td><td>67,582 (9%)</td></tr>
+          <tr><td>Avg ride duration</td><td>11.4 min</td><td class="amber">38.4 min</td></tr>
+          <tr><td>Median ride duration</td><td>8.5 min</td><td>23.1 min</td></tr>
           <tr><td>Peak days</td><td>Tue-Thu</td><td>Sat-Sun</td></tr>
-          <tr><td>Peak hours</td><td>7-9 AM, 5-6 PM</td><td>10 AM - 4 PM</td></tr>
+          <tr><td>Peak hours</td><td>7-9 AM, 4-6 PM</td><td>12 PM - 5 PM</td></tr>
           <tr><td>Usage pattern</td><td>Commute-oriented</td><td>Leisure-oriented</td></tr>
         </tbody>
       </table></div>
-      <div class="impact-block blue"><p class="impact-label">Interpretation for marketing and product</p><p>A casual rider taking a 36-minute Saturday ride does not need a commuter pitch. Messaging focused on cost savings per trip, city exploration, and no per-minute charges on longer rides is more relevant than "save time on your commute." The conversion argument needs to match the actual use case -- not the member use case the brand already serves well.</p></div>
+      <div class="impact-block blue"><p class="impact-label">Interpretation for marketing and product</p><p>A casual rider taking a 38-minute Saturday ride does not need a commuter pitch. Messaging focused on cost savings per trip, city exploration, and no per-minute charges on longer rides is more relevant than "save time on your commute." The conversion argument needs to match the actual use case, not the member use case the brand already serves well.</p></div>
     </div>
   </div>
   <div class="finding">
-    <div class="finding-header"><span class="finding-number">02</span><span class="finding-title">The conversion window is Saturday and Sunday, 10 AM to 4 PM</span></div>
+    <div class="finding-header"><span class="finding-number">02</span><span class="finding-title">The conversion window is Saturday and Sunday, 12 PM to 5 PM</span></div>
     <div class="finding-body">
-      <p>Casual ridership peaks Saturday and Sunday. Member ridership drops sharply on those same days. The overlap is minimal -- these are two distinct populations using the same infrastructure at different times.</p>
-      <div class="impact-block green"><p class="impact-label">What this suggests for campaign timing</p><p>The optimal conversion window is mid-ride on a Saturday or Sunday -- when a casual rider is actively engaged with the product and physically present at a docking station. In-app prompts, docking station signage, and push notifications triggered by weekend ride completion have higher conversion probability than weekday email campaigns. Targeting the moment of highest product engagement, not the moment of highest digital attention, is the correct timing framework.</p></div>
+      <p>Casual ridership peaks Saturday and Sunday. Member ridership drops sharply on those same days. The overlap is minimal. These are two distinct populations using the same infrastructure at different times.</p>
+      <div class="impact-block green"><p class="impact-label">What this suggests for campaign timing</p><p>The optimal conversion window is mid-ride on a Saturday or Sunday, when a casual rider is actively engaged with the product and physically present at a docking station. In-app prompts, docking station signage, and push notifications triggered by weekend ride completion have higher conversion probability than weekday email campaigns. Targeting the moment of highest product engagement, not the moment of highest digital attention, is the correct timing framework.</p></div>
     </div>
   </div>
   <div class="finding">
     <div class="finding-header"><span class="finding-number">03</span><span class="finding-title">Casual riders who use the system frequently likely pay more annually than members do</span></div>
     <div class="finding-body">
-      <p>At casual single-ride rates of approximately $3.30 per trip (Divvy 2019-2020 pricing), a rider taking two rides per weekend across 12 months spends roughly $343 annually. Annual membership at $108/year (Divvy 2019 rate) saves that rider approximately $235. The math favors membership for any casual rider using the system more than 33 times per year -- less than once per week. Note: these are approximate 2019 Divvy pricing figures; current rates should be substituted before using this estimate in any live campaign.</p>
-      <div class="impact-block amber"><p class="impact-label">What this suggests for conversion messaging</p><p>A cost comparison calculator -- showing what a casual rider's Q1 ride pattern would have cost at casual rates vs. what annual membership would have cost -- is the most direct conversion argument available. It is specific to the rider's actual behavior, not a hypothetical. This requires knowing individual ride history per user, which the current dataset's privacy constraints prevent. A cohort-level version (e.g., "riders who took 8+ rides in Q1 paid an estimated $X vs. $Y for annual membership") is achievable with the current data and could be surfaced in-app.</p></div>
+      <p>At casual single-ride rates of approximately $3.30 per trip (Divvy 2019-2020 pricing), a rider taking two rides per weekend across 12 months spends roughly $343 annually. Annual membership at $108/year (Divvy 2019 rate) saves that rider approximately $235. The math favors membership for any casual rider using the system more than 33 times per year, which is less than once per week. Note: these are approximate 2019 Divvy pricing figures; current rates should be substituted before using this estimate in any live campaign.</p>
+      <div class="impact-block amber"><p class="impact-label">What this suggests for conversion messaging</p><p>A cost comparison calculator showing what a casual rider's Q1 ride pattern would have cost at casual rates vs. what annual membership would have cost is the most direct conversion argument available. It is specific to the rider's actual behavior, not a hypothetical. This requires knowing individual ride history per user, which the current dataset's privacy constraints prevent. A cohort-level version (e.g., "riders who took 8+ rides in Q1 paid an estimated $X vs. $Y for annual membership") is achievable with the current data and could be surfaced in-app.</p></div>
     </div>
   </div>
   <div class="finding">
-    <div class="finding-header"><span class="finding-number">04</span><span class="finding-title">Casual ridership is more seasonal -- which means conversion timing matters by month</span></div>
+    <div class="finding-header"><span class="finding-number">04</span><span class="finding-title">Casual ridership is more seasonal, so conversion timing matters by month</span></div>
     <div class="finding-body">
-      <p>Casual ridership grows more steeply as Q1 progresses into warmer months. Members maintain more consistent ridership through the same period. Casual riders are weather-sensitive in a way members are not -- consistent with leisure use patterns and a likely tourist component.</p>
-      <div class="impact-block blue"><p class="impact-label">What this suggests for campaign calendar</p><p>Conversion campaigns launched in late Q1 (March) reach casual riders at the moment their ridership is increasing and the weather is improving. Waiting for Q2 peak summer ridership means competing with tourism marketing noise and higher acquisition costs. The optimal conversion window is early in the season -- before casual riders have settled into their summer pattern without membership.</p></div>
+      <p>Casual ridership grows more steeply as Q1 progresses into warmer months. Members maintain more consistent ridership through the same period. Casual riders are weather-sensitive in a way members are not, consistent with leisure use patterns and a likely tourist component.</p>
+      <div class="impact-block blue"><p class="impact-label">What this suggests for campaign calendar</p><p>Conversion campaigns launched in late Q1 (March) reach casual riders at the moment their ridership is increasing and the weather is improving. Waiting for Q2 peak summer ridership means competing with tourism marketing noise and higher acquisition costs. The optimal conversion window is early in the season, before casual riders have settled into their summer pattern without membership.</p></div>
     </div>
   </div>
 </section>
@@ -145,24 +145,24 @@
   <p class="section-label">Action Items</p>
   <h2 class="section-title">Three conversion levers ranked by expected reach</h2>
   <div class="rec-grid">
-    <div class="rec-card"><p class="rec-priority p1">Highest Reach</p><h3>Weekend conversion campaigns at peak usage moments</h3><p>Target casual riders at docking stations and via in-app prompt on Saturday and Sunday. Trigger the conversion offer immediately after ride completion -- the highest-engagement moment. A time-limited discount for converting during or after a weekend ride reduces friction at the point of maximum product satisfaction.</p><div class="rec-impact">Timing: ride completion trigger, Saturday and Sunday, 10 AM to 4 PM</div></div>
+    <div class="rec-card"><p class="rec-priority p1">Highest Reach</p><h3>Weekend conversion campaigns at peak usage moments</h3><p>Target casual riders at docking stations and via in-app prompt on Saturday and Sunday. Trigger the conversion offer immediately after ride completion, the highest-engagement moment. A time-limited discount for converting during or after a weekend ride reduces friction at the point of maximum product satisfaction.</p><div class="rec-impact">Timing: ride completion trigger, Saturday and Sunday, 12 PM to 5 PM</div></div>
     <div class="rec-card"><p class="rec-priority p1">Product</p><h3>Create a leisure or weekend membership tier</h3><p>Annual membership is priced and positioned for commuters. A "Weekend Pass" or "Leisure Membership" priced between casual rates and annual membership reduces the commitment barrier. Casual riders in this tier create an upsell path to annual membership and generate revenue that currently does not exist.</p><div class="rec-impact">Pricing target: between casual per-trip rates and annual membership cost</div></div>
-    <div class="rec-card"><p class="rec-priority p2">Digital</p><h3>Run leisure-focused ads between 10 AM and 4 PM on weekends</h3><p>Messaging should focus on exploration and longer-ride value, not commuting efficiency. Partner with local tourism and event platforms to reach casual riders planning weekend activities. Match the channel timing to when casual riders are active -- not when members are.</p><div class="rec-impact">Creative angle: "Explore more, pay less" not "Save time on your commute"</div></div>
+    <div class="rec-card"><p class="rec-priority p2">Digital</p><h3>Run leisure-focused ads between 12 PM and 5 PM on weekends</h3><p>Messaging should focus on exploration and longer-ride value, not commuting efficiency. Partner with local tourism and event platforms to reach casual riders planning weekend activities. Match the channel timing to when casual riders are active, not when members are.</p><div class="rec-impact">Creative angle: "Explore more, pay less" not "Save time on your commute"</div></div>
   </div>
 </section>
 <section id="data" class="section">
   <p class="section-label">Technical Reference</p>
   <h2 class="section-title">Data scope and cleaning</h2>
   <div class="data-table-wrap"><table><thead><tr><th>Dimension</th><th>Value</th></tr></thead><tbody>
-    <tr><td>Dataset</td><td>Divvy / Motivate International Inc. -- public license</td></tr>
-    <tr><td>Period</td><td>Q1 2019 (365,069 rows) and Q1 2020 (426,886 rows)</td></tr>
-    <tr><td>Final clean dataset</td><td>791,264 rides (692 rows removed, under 0.1%)</td></tr>
-    <tr><td>Exclusions</td><td>ride_length_min less than or equal to 0 (negative or zero durations); ride_length_min greater than or equal to 1,440 min (likely maintenance trips)</td></tr>
+    <tr><td>Dataset</td><td>Divvy / Motivate International Inc., public license</td></tr>
+    <tr><td>Period</td><td>Q1 2019 (365,069 rows) and Q1 2020 (426,887 rows)</td></tr>
+    <tr><td>Final clean dataset</td><td>787,707 rides (4,249 rows removed, about 0.5%)</td></tr>
+    <tr><td>Exclusions</td><td>HQ QR test rides; zero or negative ride length; rides longer than 24 hours (bikes never docked properly)</td></tr>
     <tr><td>Schema standardization</td><td>2019 column names unified with 2020 schema (trip_id to ride_id, usertype to member_casual, etc.)</td></tr>
     <tr><td>Engineered features</td><td>ride_length_min, day_of_week, hour, month</td></tr>
     <tr><td>Tools</td><td>Python (pandas), SQL, BigQuery</td></tr>
   </tbody></table></div>
-  <div class="impact-block amber" style="margin-top:20px"><p class="impact-label">Scope Limitations</p><p>This analysis covers Q1 only (January to March). Full-year data would strengthen seasonal findings, particularly summer leisure riding peaks. Data privacy prevents linking rides to individual users -- lifetime value comparisons and funnel tracking are not possible with this dataset. A/B testing the weekend conversion campaign against a control group is recommended before full rollout.</p></div>
+  <div class="impact-block amber" style="margin-top:20px"><p class="impact-label">Scope Limitations</p><p>This analysis covers Q1 only (January to March). Full-year data would strengthen seasonal findings, particularly summer leisure riding peaks. Data privacy prevents linking rides to individual users, so lifetime value comparisons and funnel tracking are not possible with this dataset. A/B testing the weekend conversion campaign against a control group is recommended before full rollout.</p></div>
 </section>
 </div>
 <footer style="max-width:860px;margin:0 auto;padding:0 24px 48px"><span>Julian Batto-Hokson · 2025</span><span><a href="https://github.com/jbattohokson">GitHub</a> · Python · SQL · BigQuery</span></footer>
