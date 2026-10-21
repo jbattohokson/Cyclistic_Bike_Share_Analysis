@@ -1,38 +1,79 @@
 # Cyclistic Bike-Share: Member vs. Casual Rider Behavior
 
-This is the Google Data Analytics Professional Certificate capstone case study (Divvy/Cyclistic public trip data), extended beyond the standard capstone with a BigQuery layer and a full Python analysis. Worth stating that plainly: the case study itself is well known, and the differentiator here is the reconciliation and warehouse work built on top of it, not the prompt.
+The Google Data Analytics Professional Certificate capstone (Divvy/Cyclistic public trip data), extended with a BigQuery layer, a reconciliation of two incompatible export schemas, and tests. The case study itself is well known; the differentiator here is the cleaning and verification work, not the prompt.
 
-**Business question:** how do annual members and casual riders use the bike-share service differently, and what does that suggest for converting casual riders into members?
+## The problem
 
-## Key finding (corrected 2026-09-16 — see below)
+Cyclistic's finance team has found that annual members are more profitable than casual riders. Marketing wants to convert casual riders into members, and needs to know **how the two groups use the bikes differently** so the offer, timing and message fit how casual riders actually ride.
 
-Members account for 91% of total rides. Casual riders take meaningfully longer trips on average — 38 minutes vs. 11 minutes for members (about 3.4x longer) — and ride more on weekends, consistent with leisure use, while members show clear commuting peaks around 8am and 5pm on weekdays.
+## What I did
 
-## Pipeline
+1. **Reconciled two schemas.** Q1 2019 (`trip_id` / `usertype` = `Subscriber`/`Customer`) and Q1 2020 (`ride_id` / `member_casual` = `member`/`casual`) were mapped to one schema and stacked: 791,956 rows.
+2. **Cleaned with explicit, counted rules.** Every dropped row is counted against the first rule it fails, and the script asserts that kept + dropped = input:
 
-1. **`python/Cyclist_Analysis_Python.py`** — reconciles two quarterly Divvy exports with different schemas (2019: `trip_id`/`usertype`/`Subscriber`/`Customer`; 2020: `ride_id`/`member_casual`/`member`/`casual`), cleans and combines them, and produces the day-of-week, hour-of-day, and monthly comparison charts.
-2. **`sql/cyclistic_bigquery.sql`** — the same cleaning and combination logic in BigQuery SQL, for reproducing the analysis at full-year scale in a cloud warehouse instead of local CSVs. (Not re-tested in this pass — no live BigQuery credentials in this environment. The SQL was reviewed for logic, not executed; it already applies the same 24-hour outlier cutoff described below, so it's a good reference for how the Python fix should behave.)
+   | Rule | Rows dropped |
+   |---|---:|
+   | HQ QR station (Divvy's internal test rides) | 3,767 |
+   | Ride longer than 24 hours (bike never docked) | 482 |
+   | Zero/negative length, unknown rider type, unparseable timestamp | 0 |
+   | **Kept** | **787,707** |
+
+3. **Compared the groups** by ride length (mean *and* median), day of week, hour of day, month and start station. All five charts and three summary CSVs are in `outputs/`.
+
+## Findings
+
+Every number below is computed by `compute_findings()` and printed by the script, so the write-up can't drift from the data.
+
+1. **Members take 91% of rides, but casual riders ride much longer.** Median 23 min vs 8.5 min (**2.7x**); mean 38 min vs 11 min (3.4x). The median is the fairer comparison: ride length is right-skewed, and the mean overstates the gap.
+2. **Casual riders are weekend riders; members are commuters.** 47% of casual rides fall on Saturday or Sunday, and casual riders ride 2.2x as much per weekend day as per weekday. Members do the opposite: 17% of rides on weekends, about half as many per weekend day.
+3. **Members show a commute signature.** On weekdays they peak at 8:00 and 17:00. Casual riders peak mid-afternoon (16:00–17:00) with no morning rush.
+4. **Casual demand is more seasonal.** From January to March, casual rides grow 3.3x (12,312 → 40,392) while member rides grow 1.13x (234,683 → 265,225).
+
+## Recommendations
+
+1. **A weekend or leisure membership tier**, priced between per-ride rates and the annual plan, to fit how casual riders already ride and give them a path up to an annual membership.
+2. **Market at the top casual start stations** (chart 5), on weekend afternoons, timed to ride completion.
+3. **Show the savings.** Casual riders' rides are longer, so per-ride pricing costs them more; a cost comparison is the most direct pitch.
+4. **Start campaigns in March**, when casual ridership is climbing, rather than waiting for summer.
+
+## Limitations
+
+- Q1 only (January–March). The seasonal finding covers the end of winter, not summer peaks.
+- No rider IDs, so there is no way to measure how often an individual casual rider rides, their lifetime value, or conversion. The savings pitch needs per-rider data or a cohort estimate.
+- The recommendations are hypotheses to A/B test against a holdout, not measured effects.
+
+## Run it
 
 ```bash
 pip install -r requirements.txt
-python "python/Cyclist_Analysis_Python.py"
+python python/Cyclist_Analysis_Python.py   # reads the CSVs straight from data/*.zip, writes outputs/
+python -m pytest tests/                    # edge-case tests for cleaning and findings
 ```
 
-`cyclistic_bigquery.sql` is written for Google BigQuery (free tier) — run it there directly against your own project.
+`sql/cyclistic_bigquery.sql` is the same pipeline in BigQuery SQL, for running at full-year scale in a cloud warehouse. Run it in your own BigQuery project (it references `big-query-486123.Cyclist_Data`; swap in your project and dataset).
 
 ## Tools
 
-Python (pandas, matplotlib), Google BigQuery (SQL), Tableau Public.
+Python (pandas, matplotlib), Google BigQuery (SQL), Tableau Public, pytest.
 
 ## Dashboard
 
-*(Add the public.tableau.com link for `Cyclist_Bike_Share_Viz`.)*
+Tableau PDFs are in `tableau/`. *(Public Tableau link still to be added.)*
 
-## Bugs found and fixed while testing this pipeline (2026-09-16)
+## Audit log
 
-1. **The reported "90 min vs 13 min" ride-length finding was outlier-contaminated.** The only filter on ride length was `> 0` — no upper bound. The dataset's max ride length is 10,632,022 seconds (~123 days), almost certainly a bike that was never docked rather than a real ride, and it was pulling casual riders' mean ride length up to ~90 minutes even though the median was ~23 minutes — a large mean/median gap that's a textbook outlier signal, not a real behavioral difference. The script's own "KEY FINDINGS" text was printing that inflated mean as if it were a clean insight. Added a 24-hour upper-bound filter (the same cutoff the BigQuery SQL in this project already used — the two layers had drifted apart) and reran 3 times: the corrected, honest finding is 38 min vs. 11 min (3.4x), not 90 vs. 13 (6.8x). Only 4,249 of ~792,000 rows (0.5%) were affected.
-2. **A 2019 column was mislabeled.** `bikeid` (a numeric bike ID) was renamed directly to `rideable_type` (a 2020+ category like "docked_bike"), which conflates two different kinds of fields. It happened to be unused downstream so this was silent, but would have broken the moment anyone added a "rides by bike type" chart. Renamed to the accurate `bike_id`.
+**2026-10-21 audit and rebuild**
+- **The SQL and Python had drifted.** The BigQuery version never excluded HQ QR test rides (183 survived), and `TIMESTAMP_DIFF(..., MINUTE)` truncates, so every ride under 60 seconds became 0 and was dropped (3,908 rides the Python keeps). It now uses seconds and the same HQ QR + 24-hour rules. The same logic run in DuckDB against the CSVs gives 787,707 rows, matching Python. The duration buckets were rewritten as half-open ranges, because `BETWEEN 10 AND 20` / `BETWEEN 21 AND 30` would put a 20.5-minute ride in "Over 120 min" now that minutes are fractional.
+- **The findings were hardcoded text.** "Members ride mostly on weekdays", "peaks around 8am and 5pm" and "March has the highest volume" were printed whether or not the data said so. They are now computed, and the median comparison was added next to the mean.
+- **Fragile charts.** The monthly chart hardcoded `['January', 'February', 'March']` and the hourly chart skipped any hour with no rides, either of which would mislabel bars on a different extract. Both now index from the data.
+- **Runs from the repo as committed.** The script reads the CSVs directly from `data/Divvy_Trips_2019-2020_Q1_csv.zip`; before, it failed unless you unzipped first.
+- **Tests added** (`tests/test_cleaning.py`): one row per cleaning rule, the 24-hour boundary, mixed-type ride IDs, unknown rider labels, malformed timestamps, findings on synthetic data with known answers, and a dataset with no casual riders.
+- Page typo fixed: member rides are 720,125 (one paragraph said 720,126).
 
-## Repo hygiene note
+**2026-09-16**
+1. **The reported "90 min vs 13 min" ride-length finding was outlier-contaminated.** The only filter was `ride_length > 0`. The max ride was 10,632,022 seconds (~123 days), a bike that was never docked, and it pulled the casual mean to ~90 minutes. Adding a 24-hour cap gives 38 vs 11 min (3.4x). Only 4,249 of ~792,000 rows (0.5%) were affected.
+2. **A 2019 column was mislabeled.** `bikeid` (a numeric bike ID) was renamed to `rideable_type` (a 2020 category like "docked_bike"). It is now `bike_id`.
 
-Three SQL file versions and two duplicate `outputs/` folders (one under `python/`, stale and superseded, now removed) were consolidated. The combined trip CSVs are 100MB+ and are excluded from git via `.gitignore` — they're fully regenerable by re-running the pipeline against the public Divvy data.
+## Repo hygiene
+
+The extracted trip CSVs and `outputs/all_trips_clean.csv` are 100MB+ and gitignored; the zip in `data/` is the source and everything else regenerates from it.

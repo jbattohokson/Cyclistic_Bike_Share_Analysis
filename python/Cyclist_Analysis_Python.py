@@ -1,6 +1,156 @@
 from pathlib import Path
+import zipfile
+
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")  # headless: the script only writes PNGs
 import matplotlib.pyplot as plt
+
+
+DAYS_ORDER = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+WEEKEND = ["Saturday", "Sunday"]
+MONTH_NAMES = {1: "January", 2: "February", 3: "March", 4: "April", 5: "May", 6: "June",
+               7: "July", 8: "August", 9: "September", 10: "October", 11: "November", 12: "December"}
+
+#Divvy's quality-check station: test rides, not customers
+HQ_STATION = "HQ QR"
+
+# TESTED 2026-09-16: the original filter (ride_length > 0, no upper bound)
+# let a small number of extreme outliers through -- the max ride_length in
+# this dataset is 10,632,022 seconds (about 123 days), almost certainly a
+# bike that was never properly docked rather than a real ride. That pulled
+# the casual-rider mean ride length up to ~90 minutes even though the
+# median was ~23 minutes. A ride longer than a day is not representative
+# user behavior, so 24 hours is the upper bound (same rule as the SQL).
+MAX_RIDE_LENGTH_SEC = 24 * 60 * 60
+
+# 2019 Divvy exports use different column names and rider labels than 2020+.
+# `bikeid` is a numeric bike ID, not the same field as 2020's `rideable_type`
+# (a category like "docked_bike"), so it is renamed to bike_id, not merged.
+COLUMNS_2019_TO_2020 = {
+    'trip_id': 'ride_id',
+    'bikeid': 'bike_id',
+    'start_time': 'started_at',
+    'end_time': 'ended_at',
+    'from_station_name': 'start_station_name',
+    'from_station_id': 'start_station_id',
+    'to_station_name': 'end_station_name',
+    'to_station_id': 'end_station_id',
+    'usertype': 'member_casual',
+}
+RIDER_LABELS = {'Subscriber': 'member', 'Customer': 'casual', 'member': 'member', 'casual': 'casual'}
+
+#Dropped because 2020 exports no longer carry them
+DROPPED_COLUMNS = ['start_lat', 'start_lng', 'end_lat', 'end_lng', 'birthyear', 'gender', 'tripduration']
+
+
+def combine_quarters(q1_2019, q1_2020):
+    #Reconcile the two schemas and stack them into one frame
+    q1_2019 = q1_2019.rename(columns=COLUMNS_2019_TO_2020)
+    q1_2019['ride_id'] = q1_2019['ride_id'].astype(str)
+    if 'bike_id' in q1_2019:
+        q1_2019['bike_id'] = q1_2019['bike_id'].astype(str)
+    q1_2020 = q1_2020.copy()
+    q1_2020['ride_id'] = q1_2020['ride_id'].astype(str)
+    all_trips = pd.concat([q1_2019, q1_2020], ignore_index=True)
+    return all_trips.drop(columns=DROPPED_COLUMNS, errors='ignore')
+
+
+def clean_trips(all_trips):
+    """Normalize labels, derive date fields and ride length, then drop bad rows.
+
+    Returns (clean frame, dict of how many rows each rule removed). Rules run in
+    order and a row is counted against the first rule it fails.
+    """
+    df = all_trips.copy()
+    df['member_casual'] = df['member_casual'].map(RIDER_LABELS)
+    #format="mixed" + coerce: a malformed timestamp becomes NaT and is dropped below, not a crash
+    df['started_at'] = pd.to_datetime(df['started_at'], errors='coerce', format='mixed')
+    df['ended_at'] = pd.to_datetime(df['ended_at'], errors='coerce', format='mixed')
+    df['ride_length'] = (df['ended_at'] - df['started_at']).dt.total_seconds()
+
+    rules = [
+        ('unknown rider type', df['member_casual'].isna()),
+        ('unparseable timestamp', df['ride_length'].isna()),
+        ('HQ QR test ride', df['start_station_name'].eq(HQ_STATION)),
+        ('zero or negative length', df['ride_length'] <= 0),
+        ('longer than 24 hours', df['ride_length'] > MAX_RIDE_LENGTH_SEC),
+    ]
+    dropped = {}
+    keep = pd.Series(True, index=df.index)
+    for name, bad in rules:
+        hit = keep & bad.fillna(False)
+        dropped[name] = int(hit.sum())
+        keep &= ~hit
+    df = df[keep].copy()
+
+    df['date'] = df['started_at'].dt.date
+    df['month'] = df['started_at'].dt.month
+    df['day'] = df['started_at'].dt.day
+    df['year'] = df['started_at'].dt.year
+    df['hour'] = df['started_at'].dt.hour
+    #Categorical so every groupby sorts Sunday..Saturday
+    df['day_of_week'] = pd.Categorical(df['started_at'].dt.day_name(), categories=DAYS_ORDER, ordered=True)
+    df['ride_length_min'] = df['ride_length'] / 60
+    return df, dropped
+
+
+def compute_findings(df):
+    #Every number the write-up quotes comes from here, so the text can't drift from the data
+    by_type = df.groupby('member_casual', observed=True)
+    rides = by_type['ride_id'].count()
+    weekend = df['day_of_week'].isin(WEEKEND)
+    weekday = ~weekend
+    #Rides per average day, so 5 weekdays vs 2 weekend days compare fairly
+    weekend_per_day = df[weekend].groupby('member_casual')['ride_id'].count() / 2
+    weekday_per_day = df[weekday].groupby('member_casual')['ride_id'].count() / 5
+    hourly = df[weekday].groupby(['member_casual', 'hour'])['ride_id'].count()
+    monthly = df.groupby(['member_casual', 'month'])['ride_id'].count()
+
+    findings = {'total_rides': int(rides.sum())}
+    for rider in ('member', 'casual'):
+        if rider not in rides.index:
+            continue
+        lengths = df.loc[df['member_casual'] == rider, 'ride_length_min']
+        hours = hourly.loc[rider] if rider in hourly.index.get_level_values(0) else pd.Series(dtype=float)
+        months = monthly.loc[rider]
+        findings[rider] = {
+            'rides': int(rides[rider]),
+            'share_of_rides': float(rides[rider] / rides.sum()),
+            'mean_min': float(lengths.mean()),
+            'median_min': float(lengths.median()),
+            'weekend_share': float(weekend[df['member_casual'] == rider].mean()),
+            'weekend_vs_weekday_per_day': float(weekend_per_day.get(rider, 0) / weekday_per_day[rider])
+                if weekday_per_day.get(rider, 0) else float('nan'),
+            'weekday_peak_hours': sorted(int(h) for h in hours.nlargest(2).index),
+            'peak_month': int(months.idxmax()),
+        }
+    if 'member' in findings and 'casual' in findings:
+        findings['mean_ratio'] = findings['casual']['mean_min'] / findings['member']['mean_min']
+        findings['median_ratio'] = findings['casual']['median_min'] / findings['member']['median_min']
+    return findings
+
+
+def format_findings(f):
+    m, c = f['member'], f['casual']
+    month = MONTH_NAMES[m['peak_month']] if m['peak_month'] == c['peak_month'] else \
+        f"{MONTH_NAMES[m['peak_month']]} (members) / {MONTH_NAMES[c['peak_month']]} (casual)"
+    return f"""
+1. Members take {m['share_of_rides']:.0%} of rides, but casual riders ride longer:
+   median {c['median_min']:.0f} min vs {m['median_min']:.0f} min ({f['median_ratio']:.1f}x),
+   mean {c['mean_min']:.0f} min vs {m['mean_min']:.0f} min ({f['mean_ratio']:.1f}x).
+   The median is the fairer comparison; ride length is right-skewed.
+
+2. Casual riders are weekend riders: {c['weekend_share']:.0%} of their rides fall on
+   Sat/Sun, and they ride {c['weekend_vs_weekday_per_day']:.1f}x as much per weekend day as per weekday.
+   Members are the opposite: {m['weekend_share']:.0%} weekend, {m['weekend_vs_weekday_per_day']:.1f}x per day.
+
+3. On weekdays members peak at {', '.join(f'{h}:00' for h in m['weekday_peak_hours'])}
+   (commute hours); casual riders peak at {', '.join(f'{h}:00' for h in c['weekday_peak_hours'])}.
+
+4. Busiest month: {month}. This is Q1 only (Jan-Mar), so it shows
+   the end of winter, not a full seasonal picture.
+"""
 
 
 def plot_grouped_bar(ax, categories, member_vals, casual_vals, member_color, casual_color, title, xlabel, ylabel):
@@ -17,193 +167,55 @@ def plot_grouped_bar(ax, categories, member_vals, casual_vals, member_color, cas
     ax.grid(axis='y', alpha=0.3)
 
 
-if __name__ == "__main__":
+def load_quarter(data_dir, name):
+    #The repo ships the CSVs zipped; read straight from the zip if they aren't extracted
+    csv = data_dir / name
+    if csv.exists():
+        return pd.read_csv(csv)
+    for archive in sorted(data_dir.glob('*.zip')):
+        with zipfile.ZipFile(archive) as zf:
+            if name in zf.namelist():
+                with zf.open(name) as fh:
+                    return pd.read_csv(fh)
+    raise FileNotFoundError(f"{name} not found in {data_dir} (as a CSV or inside a .zip)")
+
+
+def main():
     #Script lives in python/, CSVs live in data/, outputs go to outputs/ — all siblings at project root
-    PROJECT_ROOT = Path(__file__).resolve().parent.parent
-    BASE_DIR = PROJECT_ROOT / "data"
-    output_folder = PROJECT_ROOT / "outputs"
+    project_root = Path(__file__).resolve().parent.parent
+    data_dir = project_root / "data"
+    output_folder = project_root / "outputs"
     output_folder.mkdir(exist_ok=True)
 
     member_color = '#4472C4'
     casual_color = '#ED7D31'
 
-    #Load csv files
-    q1_2019 = pd.read_csv(BASE_DIR / "Divvy_Trips_2019_Q1.csv")
-    q1_2020 = pd.read_csv(BASE_DIR / "Divvy_Trips_2020_Q1.csv")
+    q1_2019 = load_quarter(data_dir, "Divvy_Trips_2019_Q1.csv")
+    q1_2020 = load_quarter(data_dir, "Divvy_Trips_2020_Q1.csv")
+    print(f"Loaded {len(q1_2019):,} rows (Q1 2019) and {len(q1_2020):,} rows (Q1 2020)")
 
-    #WRANGLE DATA AND COMBINE INTO A SINGLE FILE
+    all_trips = combine_quarters(q1_2019, q1_2020)
+    print("Rider labels before cleaning:\n", all_trips['member_casual'].value_counts())
 
-    #Compare column names for each of the files
-    print("Columns for Q1 2019:\n", q1_2019.columns)
-    print("\nColumns for Q1 2020:\n", q1_2020.columns)
+    all_trips_v2, dropped = clean_trips(all_trips)
+    print(f"\nKept {len(all_trips_v2):,} of {len(all_trips):,} rows. Dropped:")
+    for rule, n in dropped.items():
+        print(f"  {rule:<26}{n:>8,}")
+    #Row conservation: every input row is either kept or counted against one rule
+    assert len(all_trips_v2) + sum(dropped.values()) == len(all_trips)
 
-    #Rename columns to make them consistent with q1_2020
-    # TESTED 2026-09-16: 2019 Divvy exports have a `bikeid` column (a unique
-    # numeric bike ID), while 2020+ exports have `rideable_type` (a category
-    # like "docked_bike"/"electric_bike"). These are not the same field --
-    # renaming bikeid directly to rideable_type mislabels a numeric ID as a
-    # bike-type category. It's currently unused downstream (no chart or
-    # groupby references rideable_type), so this was silent, but it would
-    # break the moment anyone added a "rides by bike type" chart, since 2019
-    # rows would show up as thousands of distinct numeric "types" instead of
-    # a handful of real categories. Renamed to the accurate `bike_id` instead.
-    q1_2019 = q1_2019.rename(columns={
-        'trip_id': 'ride_id',
-        'bikeid': 'bike_id',
-        'start_time': 'started_at',
-        'end_time': 'ended_at',
-        'from_station_name': 'start_station_name',
-        'from_station_id': 'start_station_id',
-        'to_station_name': 'end_station_name',
-        'to_station_id': 'end_station_id',
-        'usertype': 'member_casual'
-    })
-
-    #Inspect the data frames and look for incongruities
-    print("\nQ1 2019 Data Info:")
-    q1_2019.info()
-    print("\nQ1 2020 Data Info:")
-    q1_2020.info()
-
-    #Convert ride_id and rideable_type to string so that they can stack correctly
-    q1_2019['ride_id'] = q1_2019['ride_id'].astype(str)
-    q1_2019['bike_id'] = q1_2019['bike_id'].astype(str)
-
-    #Stack individual quarter's data frames into one big data frame
-    all_trips = pd.concat([q1_2019, q1_2020], ignore_index=True)
-
-    #Remove lat, long, birthyear, and gender fields as this data was dropped beginning in 2020
-    #The 'errors="ignore"' argument prevents an error if a column is not found
-    all_trips = all_trips.drop(
-        columns=['start_lat', 'start_lng', 'end_lat', 'end_lng', 'birthyear', 'gender', 'tripduration'],
-        errors='ignore'
-    )
-
-    #CLEAN UP AND ADD DATA TO PREPARE FOR ANALYSIS
-
-    #Inspect the new table that has been created
-    print("\nList of column names:\n", all_trips.columns)
-    print("\nHow many rows are in data frame?", len(all_trips))
-    print("\nDimensions of the data frame:", all_trips.shape)
-    print("\nSee the first 6 rows of data frame:\n", all_trips.head())
-    print("\nSee list of columns and data types:\n")
-    all_trips.info()
-    print("\nStatistical summary of data:\n", all_trips.describe())
-
-    #In the "member_casual" column, replace "Subscriber" with "member" and "Customer" with "casual"
-    #Begin by discovering how many observations fall under each usertype
-    print("\nValue counts for 'member_casual' column before cleaning:\n", all_trips['member_casual'].value_counts())
-
-    #Reassign to the desired values (go with the current 2020 labels)
-    all_trips['member_casual'] = all_trips['member_casual'].replace({
-        'Subscriber': 'member',
-        'Customer': 'casual'
-    })
-
-    print("\nValue counts for 'member_casual' column after cleaning:\n", all_trips['member_casual'].value_counts())
-
-    #Convert 'started_at' and 'ended_at' to datetime objects
-    all_trips['started_at'] = pd.to_datetime(all_trips['started_at'])
-    all_trips['ended_at'] = pd.to_datetime(all_trips['ended_at'])
-
-    #Add columns that list the date, month, day, and year of each ride
-    all_trips['date'] = all_trips['started_at'].dt.date
-    all_trips['month'] = all_trips['started_at'].dt.month
-    all_trips['day'] = all_trips['started_at'].dt.day
-    all_trips['year'] = all_trips['started_at'].dt.year
-    all_trips['day_of_week'] = all_trips['started_at'].dt.day_name()
-
-    #Add a "ride_length" calculation to all_trips (in seconds)
-    all_trips['ride_length'] = (all_trips['ended_at'] - all_trips['started_at']).dt.total_seconds()
-
-    print("\nData types after adding date columns and ride_length:\n")
-    all_trips.info()
-
-    #Set the categorical day order here so all downstream aggregations sort correctly
-    days_order = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-    all_trips['day_of_week'] = pd.Categorical(all_trips['day_of_week'], categories=days_order, ordered=True)
-
-    #Remove "bad" data
-    #Excludes HQ QR quality check rides and anything with zero or negative ride_length
-    #Zero seconds is a timestamp collision and not a real ride
-    #
-    # TESTED 2026-09-16: the original filter (ride_length > 0, no upper bound)
-    # let a small number of extreme outliers through -- the max ride_length in
-    # this dataset is 10,632,022 seconds (about 123 days), almost certainly a
-    # bike that was never properly docked rather than a real ride. That pulled
-    # the casual-rider mean ride length up to ~90 minutes even though the
-    # median was ~23 minutes -- a huge mean/median gap that's a textbook sign
-    # of outlier contamination, not a real behavioral difference. The script's
-    # own "KEY FINDINGS" section was citing that inflated mean as if it were
-    # a real insight ("casual riders take much longer trips on average"),
-    # which is a real analytical error, not just a data quality footnote.
-    # Added a 24-hour upper bound, which is the standard cutoff used for this
-    # exact Divvy/Cyclistic dataset in the Google Data Analytics capstone
-    # community: a ride longer than a day is not representative user behavior.
-    MAX_RIDE_LENGTH_SEC = 24 * 60 * 60  # 24 hours
-    before_outlier_filter = len(all_trips)
-    all_trips_v2 = all_trips[
-        (all_trips['start_station_name'] != "HQ QR") &
-        (all_trips['ride_length'] > 0) &
-        (all_trips['ride_length'] <= MAX_RIDE_LENGTH_SEC)
-    ].copy()
-    dropped_outliers = before_outlier_filter - len(all_trips_v2)
-    print(f"\nDropped {dropped_outliers:,} rows as outliers (HQ QR test rides, "
-          f"zero/negative ride_length, or ride_length > 24 hours).")
-
-    #CONDUCT DESCRIPTIVE ANALYSIS
-
-    print("\nDescriptive statistics for ride_length:\n", all_trips_v2['ride_length'].describe())
-
-    print("\nRide length statistics grouped by member_casual:\n",
-          all_trips_v2.groupby('member_casual')['ride_length'].agg(['mean', 'median', 'max', 'min']))
-
-    print("\nAverage ride length by member type and day of the week:\n",
-          all_trips_v2.groupby(['member_casual', 'day_of_week'])['ride_length'].mean())
-
-    #day_of_week is already categorical so this sorts correctly
-    print("\nAverage ride length (sorted by day of week):\n",
-          all_trips_v2.groupby(['member_casual', 'day_of_week'])['ride_length'].mean())
-
-    summary_stats = all_trips_v2.groupby(['member_casual', 'day_of_week']).agg(
-        number_of_rides=('ride_id', 'count'),
-        average_duration=('ride_length', 'mean')
-    ).reset_index()
-    print("\nSummary of rides and duration by rider type and weekday:\n", summary_stats)
-
-    #Adding ride_length in minutes since it's easier to read than seconds
-    all_trips_v2['ride_length_min'] = all_trips_v2['ride_length'] / 60
-
-    #Adding hour of day — this might show commuter vs leisure patterns
-    all_trips_v2['hour'] = all_trips_v2['started_at'].dt.hour
-
-    #Extra stats to see before making charts
-    member_avg_min = all_trips_v2[all_trips_v2['member_casual'] == 'member']['ride_length_min'].mean()
-    casual_avg_min = all_trips_v2[all_trips_v2['member_casual'] == 'casual']['ride_length_min'].mean()
-
-    print("\n--- Number of rides by rider type ---")
-    print(all_trips_v2.groupby('member_casual')['ride_id'].count())
-
-    print(f"\nMember avg ride length: {member_avg_min:.1f} minutes")
-    print(f"Casual avg ride length: {casual_avg_min:.1f} minutes")
-    print(f"Casual riders ride about {casual_avg_min/member_avg_min:.1f}x longer on average")
-
-    print("\n--- Number of rides by rider type and day of week ---")
-    print(all_trips_v2.groupby(['member_casual', 'day_of_week'])['ride_id'].count())
+    print("\nRide length (minutes) by rider type:\n",
+          all_trips_v2.groupby('member_casual')['ride_length_min'].agg(['count', 'mean', 'median', 'max', 'min']).round(1))
 
     #VISUALIZATIONS
 
     #Chart 1: Number of Rides by Day of Week
-    rides_by_day = all_trips_v2.groupby(['member_casual', 'day_of_week'])['ride_id'].count().reset_index()
-    rides_by_day.columns = ['member_casual', 'day_of_week', 'number_of_rides']
-
-    member_by_day = rides_by_day[rides_by_day['member_casual'] == 'member'].set_index('day_of_week').reindex(days_order)
-    casual_by_day = rides_by_day[rides_by_day['member_casual'] == 'casual'].set_index('day_of_week').reindex(days_order)
-
+    rides_by_day = (all_trips_v2.groupby(['member_casual', 'day_of_week'], observed=False)['ride_id']
+                    .count().unstack(0).reindex(DAYS_ORDER).fillna(0))
     fig, ax = plt.subplots(figsize=(10, 6))
     plot_grouped_bar(
-        ax, days_order,
-        member_by_day['number_of_rides'], casual_by_day['number_of_rides'],
+        ax, DAYS_ORDER,
+        rides_by_day.get('member', 0), rides_by_day.get('casual', 0),
         member_color, casual_color,
         'Number of Rides by Day of Week', 'Day of Week', 'Number of Rides'
     )
@@ -212,19 +224,17 @@ if __name__ == "__main__":
     plt.close()
     print("\nSaved chart1_rides_by_day.png")
 
-    #Chart 2: Average Ride Duration by Day of Week
-    duration_by_day = all_trips_v2.groupby(['member_casual', 'day_of_week'])['ride_length_min'].mean().reset_index()
-    duration_by_day.columns = ['member_casual', 'day_of_week', 'avg_duration']
-
-    member_dur = duration_by_day[duration_by_day['member_casual'] == 'member'].set_index('day_of_week').reindex(days_order)
-    casual_dur = duration_by_day[duration_by_day['member_casual'] == 'casual'].set_index('day_of_week').reindex(days_order)
-
+    #Chart 2: Median Ride Duration by Day of Week
+    #Median, not mean: one undocked bike can drag a mean by minutes
+    duration_by_day = (all_trips_v2.groupby(['member_casual', 'day_of_week'], observed=False)['ride_length_min']
+                       .median().unstack(0).reindex(DAYS_ORDER))
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(days_order, member_dur['avg_duration'], marker='o', linewidth=2, label='Member', color=member_color)
-    ax.plot(days_order, casual_dur['avg_duration'], marker='o', linewidth=2, label='Casual', color=casual_color)
-    ax.set_title('Average Ride Duration by Day of Week (minutes)', fontsize=14, fontweight='bold')
+    ax.plot(DAYS_ORDER, duration_by_day['member'], marker='o', linewidth=2, label='Member', color=member_color)
+    ax.plot(DAYS_ORDER, duration_by_day['casual'], marker='o', linewidth=2, label='Casual', color=casual_color)
+    ax.set_title('Median Ride Duration by Day of Week (minutes)', fontsize=14, fontweight='bold')
     ax.set_xlabel('Day of Week')
-    ax.set_ylabel('Average Duration (minutes)')
+    ax.set_ylabel('Median Duration (minutes)')
+    ax.set_ylim(bottom=0)
     ax.legend()
     ax.grid(alpha=0.3)
     plt.xticks(rotation=30, ha='right')
@@ -234,16 +244,16 @@ if __name__ == "__main__":
     print("Saved chart2_avg_duration_by_day.png")
 
     #Chart 3: Rides by Hour of Day
-    #Looking for commuter peaks (8am / 5pm) vs casual riders spread through the day
+    #Looking for commuter peaks (8am / 5pm) vs casual riders spread through the day.
+    #Reindexed to 0-23 so an hour with no rides plots as 0 instead of being skipped
     rides_by_hour = all_trips_v2.groupby(['member_casual', 'hour'])['ride_id'].count().reset_index()
     rides_by_hour.columns = ['member_casual', 'hour', 'number_of_rides']
-
-    member_hourly = rides_by_hour[rides_by_hour['member_casual'] == 'member']
-    casual_hourly = rides_by_hour[rides_by_hour['member_casual'] == 'casual']
+    hourly_wide = rides_by_hour.pivot(index='hour', columns='member_casual', values='number_of_rides') \
+        .reindex(range(24)).fillna(0)
 
     fig, ax = plt.subplots(figsize=(12, 6))
-    ax.plot(member_hourly['hour'], member_hourly['number_of_rides'], marker='o', linewidth=2, label='Member', color=member_color)
-    ax.plot(casual_hourly['hour'], casual_hourly['number_of_rides'], marker='o', linewidth=2, label='Casual', color=casual_color)
+    ax.plot(hourly_wide.index, hourly_wide['member'], marker='o', linewidth=2, label='Member', color=member_color)
+    ax.plot(hourly_wide.index, hourly_wide['casual'], marker='o', linewidth=2, label='Casual', color=casual_color)
     ax.set_title('Number of Rides by Hour of Day', fontsize=14, fontweight='bold')
     ax.set_xlabel('Hour of Day (0 = midnight)')
     ax.set_ylabel('Number of Rides')
@@ -256,17 +266,15 @@ if __name__ == "__main__":
     print("Saved chart3_rides_by_hour.png")
 
     #Chart 4: Monthly Ride Volume
-    #Only Jan-Mar since this is Q1 data — would be interesting to see a full year
+    #Months come from the data (not a hardcoded Jan-Mar list) so the bars always line up with their labels
     rides_by_month = all_trips_v2.groupby(['member_casual', 'month'])['ride_id'].count().reset_index()
     rides_by_month.columns = ['member_casual', 'month', 'number_of_rides']
-
-    member_monthly = rides_by_month[rides_by_month['member_casual'] == 'member']
-    casual_monthly = rides_by_month[rides_by_month['member_casual'] == 'casual']
+    monthly_wide = rides_by_month.pivot(index='month', columns='member_casual', values='number_of_rides').fillna(0)
 
     fig, ax = plt.subplots(figsize=(8, 5))
     plot_grouped_bar(
-        ax, ['January', 'February', 'March'],
-        member_monthly['number_of_rides'].values, casual_monthly['number_of_rides'].values,
+        ax, [MONTH_NAMES[m] for m in monthly_wide.index],
+        monthly_wide['member'].values, monthly_wide['casual'].values,
         member_color, casual_color,
         'Monthly Ride Volume - Q1 Only', 'Month', 'Number of Rides'
     )
@@ -300,10 +308,11 @@ if __name__ == "__main__":
     all_trips_v2.to_csv(output_folder / 'all_trips_clean.csv', index=False)
     print("\nSaved all_trips_clean.csv")
 
-    #Summary by rider type and day — good for Tableau, replaces the redundant avg_ride_length.csv
-    summary_by_day = all_trips_v2.groupby(['member_casual', 'day_of_week']).agg(
+    #Summary by rider type and day — good for Tableau
+    summary_by_day = all_trips_v2.groupby(['member_casual', 'day_of_week'], observed=False).agg(
         number_of_rides=('ride_id', 'count'),
-        avg_ride_length_min=('ride_length_min', 'mean')
+        avg_ride_length_min=('ride_length_min', 'mean'),
+        median_ride_length_min=('ride_length_min', 'median'),
     ).reset_index()
     summary_by_day.to_csv(output_folder / 'summary_by_day.csv', index=False)
     print("Saved summary_by_day.csv")
@@ -316,28 +325,9 @@ if __name__ == "__main__":
 
     #KEY FINDINGS
     #Answering the business question: "How do annual members and casual riders use Cyclistic bikes differently?"
-    ride_counts = all_trips_v2.groupby('member_casual')['ride_id'].count()
-    member_pct = ride_counts['member'] / ride_counts.sum() * 100
-    casual_pct = ride_counts['casual'] / ride_counts.sum() * 100
-
+    findings = compute_findings(all_trips_v2)
     print("\nKEY FINDINGS")
-    print(f"""
-1. Members make up {member_pct:.0f}% of total rides but casual riders take
-   much longer trips on average ({casual_avg_min:.0f} min vs {member_avg_min:.0f} min).
-   That's about {casual_avg_min/member_avg_min:.1f}x longer per ride.
-
-2. Members ride mostly on weekdays -- this looks like commuting behavior.
-   Casual riders ride more on weekends which points to leisure use.
-
-3. Members have clear peaks around 8am and 5pm (rush hour).
-   Casual riders are more spread out through the day.
-
-4. March has the highest ride volume for both groups, probably because
-   the weather is getting better coming out of winter.
-
-   Note: this is only Q1 data so I can't see the full seasonal picture.
-   I'd want to look at full-year data before drawing strong conclusions.
-""")
+    print(format_findings(findings))
 
     print("TOP 3 RECOMMENDATIONS")
     print("""
@@ -354,3 +344,7 @@ if __name__ == "__main__":
 """)
 
     print("All output files saved to:", output_folder)
+
+
+if __name__ == "__main__":
+    main()

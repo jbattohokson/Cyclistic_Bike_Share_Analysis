@@ -84,8 +84,11 @@ WITH trips_2019 AS (
       ELSE 'unknown'
     END AS member_casual,
 
-    -- Compute duration once here; reference it in the filter below
-    TIMESTAMP_DIFF(end_time, start_time, MINUTE) AS ride_length_min,
+    -- Compute duration once here; reference it in the filter below.
+    -- Seconds, not MINUTE: TIMESTAMP_DIFF(..., MINUTE) truncates, so every
+    -- ride under 60s became 0 and was dropped (3,908 rides the Python keeps).
+    TIMESTAMP_DIFF(end_time, start_time, SECOND)          AS ride_length_sec,
+    TIMESTAMP_DIFF(end_time, start_time, SECOND) / 60.0   AS ride_length_min,
 
     FORMAT_TIMESTAMP('%A', start_time)            AS day_of_week,
     EXTRACT(HOUR FROM start_time)                 AS hour_of_day,
@@ -104,7 +107,8 @@ trips_2020 AS (
     end_station_name,
     CAST(end_station_id AS STRING)   AS end_station_id,
     member_casual,
-    TIMESTAMP_DIFF(ended_at, started_at, MINUTE) AS ride_length_min,
+    TIMESTAMP_DIFF(ended_at, started_at, SECOND)          AS ride_length_sec,
+    TIMESTAMP_DIFF(ended_at, started_at, SECOND) / 60.0   AS ride_length_min,
     FORMAT_TIMESTAMP('%A', started_at)            AS day_of_week,
     EXTRACT(HOUR FROM started_at)                 AS hour_of_day,
     FORMAT_TIMESTAMP('%Y-%m', started_at)         AS month
@@ -112,14 +116,20 @@ trips_2020 AS (
   FROM `big-query-486123`.`Cyclist_Data`.`Trips_2020_Q1`
 ),
 
+-- Same rules as python/Cyclist_Analysis_Python.py (clean_trips):
+--   * drop HQ QR (Divvy's quality-check station; test rides, not customers)
+--   * keep 0 < ride_length <= 24h
+-- Reproduced in DuckDB against the Q1 CSVs: 787,707 rows, same as Python.
 combined AS (
   SELECT * FROM trips_2019
-  WHERE ride_length_min > 0 AND ride_length_min < 1440
+  WHERE ride_length_sec > 0 AND ride_length_sec <= 86400
+    AND (start_station_name IS NULL OR start_station_name != 'HQ QR')
 
   UNION ALL
 
   SELECT * FROM trips_2020
-  WHERE ride_length_min > 0 AND ride_length_min < 1440
+  WHERE ride_length_sec > 0 AND ride_length_sec <= 86400
+    AND (start_station_name IS NULL OR start_station_name != 'HQ QR')
 )
 
 -- Add day_type and duration_bucket in the final SELECT so they exist as base
@@ -134,18 +144,20 @@ SELECT
   END AS day_type,
 
   CASE
-    WHEN ride_length_min < 10               THEN '1) Under 10 min'
-    WHEN ride_length_min BETWEEN 10 AND 20  THEN '2) 10-20 min'
-    WHEN ride_length_min BETWEEN 21 AND 30  THEN '3) 21-30 min'
-    WHEN ride_length_min BETWEEN 31 AND 60  THEN '4) 31-60 min'
-    WHEN ride_length_min BETWEEN 61 AND 120 THEN '5) 61-120 min'
-    ELSE                                         '6) Over 120 min'
+    -- Half-open ranges: ride_length_min is fractional now, so BETWEEN 10 AND 20
+    -- followed by BETWEEN 21 AND 30 would send 20.5 min to "Over 120".
+    WHEN ride_length_min < 10  THEN '1) Under 10 min'
+    WHEN ride_length_min < 20  THEN '2) 10-20 min'
+    WHEN ride_length_min < 30  THEN '3) 20-30 min'
+    WHEN ride_length_min < 60  THEN '4) 30-60 min'
+    WHEN ride_length_min < 120 THEN '5) 60-120 min'
+    ELSE                            '6) Over 120 min'
   END AS duration_bucket
 
 FROM combined;
 
 
--- Confirm row count after combining — expect ~791,000 rows
+-- Confirm row count after combining — expect 787,707 rows
 SELECT COUNT(*) AS total_clean_rows
 FROM `big-query-486123`.`Cyclist_Data`.`combined_trips`;
 
